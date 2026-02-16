@@ -1,4 +1,20 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+
 export default function HomePage() {
+  const [loading, setLoading] = useState(true);
+  const [signedIn, setSignedIn] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      setSignedIn(!!data.session);
+      setLoading(false);
+    })();
+  }, []);
+
   return (
     <main className="min-h-screen bg-black text-white">
       {/* Top nav */}
@@ -15,9 +31,18 @@ export default function HomePage() {
           <a className="text-slate-300 hover:text-white" href="#pricing">
             Pricing
           </a>
-          <a className="underline underline-offset-4" href="/login">
-            Sign in
-          </a>
+
+          {!loading && (
+            signedIn ? (
+              <a className="underline underline-offset-4" href="/today">
+                Go to Today
+              </a>
+            ) : (
+              <a className="underline underline-offset-4" href="/login">
+                Sign in
+              </a>
+            )
+          )}
         </nav>
       </header>
 
@@ -41,17 +66,29 @@ export default function HomePage() {
             </p>
 
             <div className="flex flex-col gap-3 sm:flex-row">
-              <a
-                href="/login"
-                className="inline-flex items-center justify-center rounded-lg bg-fuchsia-600 px-5 py-3 font-medium text-white hover:bg-fuchsia-500"
-              >
-                Start saving for free
-              </a>
+              {!loading && (
+                signedIn ? (
+                  <a
+                    href="/today"
+                    className="inline-flex items-center justify-center rounded-lg bg-fuchsia-600 px-5 py-3 font-medium text-white hover:bg-fuchsia-500"
+                  >
+                    Go to Today
+                  </a>
+                ) : (
+                  <a
+                    href="/login"
+                    className="inline-flex items-center justify-center rounded-lg bg-fuchsia-600 px-5 py-3 font-medium text-white hover:bg-fuchsia-500"
+                  >
+                    Start saving for free
+                  </a>
+                )
+              )}
+
               <a
                 href="/today"
                 className="inline-flex items-center justify-center rounded-lg border border-white/15 bg-white/5 px-5 py-3 font-medium text-white hover:bg-white/10"
               >
-                Go to Today
+                Today
               </a>
             </div>
 
@@ -60,7 +97,7 @@ export default function HomePage() {
             </p>
           </div>
 
-          {/* Hero mock card */}
+          {/* Hero mock card (unchanged) */}
           <div className="lg:justify-self-end">
             <div className="relative rounded-2xl border border-white/10 bg-gradient-to-b from-white/5 to-white/[0.02] p-6 shadow-sm">
               <div className="absolute -top-3 left-6 rounded-full border border-white/10 bg-black px-3 py-1 text-xs text-slate-300">
@@ -69,7 +106,9 @@ export default function HomePage() {
 
               <div className="space-y-4 pt-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-300">🔥 Streak: <strong className="text-white">7</strong></span>
+                  <span className="text-slate-300">
+                    🔥 Streak: <strong className="text-white">7</strong>
+                  </span>
                   <span className="text-slate-400">Last saved: yesterday</span>
                 </div>
 
@@ -114,101 +153,12 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* How it works */}
-      <section id="how" className="mx-auto max-w-6xl px-6 py-12">
-        <h2 className="text-2xl font-bold tracking-tight">How it works</h2>
-        <p className="mt-2 text-slate-300">
-          It’s deliberately simple. The point is to show up — not optimise yourself into a spreadsheet.
-        </p>
-
-        <div className="mt-8 grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-            <p className="text-sm text-fuchsia-300">1</p>
-            <h3 className="mt-2 font-semibold">Log today</h3>
-            <p className="mt-1 text-sm text-slate-300">
-              Game (optional), platform, mood, minutes, notes. Done in under a minute.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-            <p className="text-sm text-fuchsia-300">2</p>
-            <h3 className="mt-2 font-semibold">Keep your streak</h3>
-            <p className="mt-1 text-sm text-slate-300">
-              Don’t play today? Log that anyway. Streaks are about showing up, not hours logged.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-            <p className="text-sm text-fuchsia-300">3</p>
-            <h3 className="mt-2 font-semibold">Look back</h3>
-            <p className="mt-1 text-sm text-slate-300">
-              Your history becomes a timeline of games, moods, and little moments you’d otherwise forget.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Pricing */}
-      <section id="pricing" className="mx-auto max-w-6xl px-6 py-12">
-        <h2 className="text-2xl font-bold tracking-tight">Pricing</h2>
-        <p className="mt-2 text-slate-300">
-          Free is genuinely useful. Pro just removes the limits once you’re invested.
-        </p>
-
-        <div className="mt-8 grid gap-4 md:grid-cols-2">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-            <h3 className="text-lg font-semibold">Free</h3>
-            <p className="mt-1 text-sm text-slate-300">Start the habit. Keep it simple.</p>
-
-            <ul className="mt-4 space-y-2 text-sm text-slate-300">
-              <li>• Daily saves + streak tracking</li>
-              <li>• One platform per day</li>
-              <li>• Basic history (last 30 days)</li>
-              <li>• Ads (later)</li>
-            </ul>
-
-            <a
-              href="/login"
-              className="mt-6 inline-flex w-full items-center justify-center rounded-lg border border-white/15 bg-white/5 px-5 py-3 font-medium hover:bg-white/10"
-            >
-              Start free
-            </a>
-          </div>
-
-          <div className="rounded-2xl border border-fuchsia-500/30 bg-gradient-to-b from-fuchsia-500/10 to-white/[0.02] p-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Pro</h3>
-              <span className="rounded-full bg-fuchsia-600/30 px-3 py-1 text-xs text-fuchsia-200 border border-fuchsia-500/30">
-                Coming soon
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-slate-300">For people with multiple platforms and long memories.</p>
-
-            <ul className="mt-4 space-y-2 text-sm text-slate-300">
-              <li>• Multi-platform entries</li>
-              <li>• Unlimited history</li>
-              <li>• Deeper stats & trends</li>
-              <li>• Streak protection (freezes)</li>
-              <li>• Ad-free</li>
-            </ul>
-
-            <button
-              disabled
-              className="mt-6 inline-flex w-full items-center justify-center rounded-lg bg-fuchsia-600/40 px-5 py-3 font-medium text-white/80 cursor-not-allowed"
-              title="We’ll wire payments later."
-            >
-              Upgrade (soon)
-            </button>
-          </div>
-        </div>
-      </section>
-
       {/* Footer */}
       <footer className="mx-auto max-w-6xl px-6 py-10 text-sm text-slate-500">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p>© {new Date().getFullYear()} Save Game</p>
           <p>
-            Web-first now. Mobile later. (We’ll pretend that’s a plan, not a coping mechanism.)
+            Web-first now. Mobile later. (We’ll pretend that’s a plan.)
           </p>
         </div>
       </footer>
