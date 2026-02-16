@@ -4,7 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
-const PLATFORMS = ["PC", "PlayStation", "Xbox", "Nintendo", "Mobile", "Retro", "Cloud", "Other"];
+const PLATFORMS = [
+  "PC",
+  "PlayStation",
+  "Xbox",
+  "Nintendo",
+  "Mobile",
+  "Retro",
+  "Cloud",
+  "Other",
+];
 
 function todayISO() {
   const d = new Date();
@@ -14,9 +23,16 @@ function todayISO() {
 export default function TodayPage() {
   const router = useRouter();
   const entryDate = useMemo(() => todayISO(), []);
+
   const [userId, setUserId] = useState<string | null>(null);
   const [plan, setPlan] = useState<"free" | "pro">("free");
 
+  // Streak display
+  const [streakCount, setStreakCount] = useState<number>(0);
+  const [longestStreak, setLongestStreak] = useState<number>(0);
+  const [lastSavedDate, setLastSavedDate] = useState<string | null>(null);
+
+  // Entry fields
   const [gameName, setGameName] = useState("");
   const [platforms, setPlatforms] = useState<string[]>([]);
   const [minutes, setMinutes] = useState<number | "">("");
@@ -33,7 +49,7 @@ export default function TodayPage() {
       }
       setUserId(data.user.id);
 
-      // Ensure profile exists
+      // Ensure profile exists + read plan/streak
       const { data: prof } = await supabase
         .from("profiles")
         .select("*")
@@ -43,11 +59,17 @@ export default function TodayPage() {
       if (!prof) {
         await supabase.from("profiles").insert({ id: data.user.id });
         setPlan("free");
+        setStreakCount(0);
+        setLongestStreak(0);
+        setLastSavedDate(null);
       } else {
         setPlan((prof.plan ?? "free") === "pro" ? "pro" : "free");
+        setStreakCount(prof.streak_count ?? 0);
+        setLongestStreak(prof.longest_streak ?? 0);
+        setLastSavedDate(prof.last_saved_date ?? null);
       }
 
-      // Load today's entry (if any)
+      // Load today's entry if it exists
       const { data: e } = await supabase
         .from("entries")
         .select("*")
@@ -67,7 +89,8 @@ export default function TodayPage() {
 
   function togglePlatform(p: string) {
     if (plan === "free") {
-      setPlatforms([p]); // free: 1 per day
+      // free: only 1 platform
+      setPlatforms([p]);
       return;
     }
     setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
@@ -116,8 +139,8 @@ export default function TodayPage() {
     const last = prof.last_saved_date as string | null;
     const today = entryDate;
 
-    let streak = prof.streak_count as number;
-    let longest = prof.longest_streak as number;
+    let streak = (prof.streak_count as number) ?? 0;
+    let longest = (prof.longest_streak as number) ?? 0;
 
     if (!last) {
       streak = 1;
@@ -127,11 +150,12 @@ export default function TodayPage() {
       const diffDays = Math.round((+todayDate - +lastDate) / (1000 * 60 * 60 * 24));
 
       if (diffDays === 0) {
-        // already saved today, keep streak
+        // already saved today; keep streak
       } else if (diffDays === 1) {
         streak += 1;
       } else {
-        streak = 1; // missed days
+        // missed days
+        streak = 1;
       }
     }
 
@@ -146,6 +170,11 @@ export default function TodayPage() {
       })
       .eq("id", userId);
 
+    // Update UI immediately
+    setStreakCount(streak);
+    setLongestStreak(longest);
+    setLastSavedDate(today);
+
     setStatus("Game saved. Streak safe.");
   }
 
@@ -156,14 +185,32 @@ export default function TodayPage() {
 
   return (
     <main className="mx-auto max-w-2xl p-6 space-y-6">
-      <header className="flex items-center justify-between">
+      <header className="flex items-start justify-between">
         <div>
           <h1 className="text-3xl font-bold">Today</h1>
           <p className="text-slate-600">Save your day in under a minute.</p>
+
+          <div className="mt-2 text-sm text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
+            <span>
+              🔥 Streak: <strong className="text-slate-200">{streakCount}</strong>
+            </span>
+            <span>
+              🏆 Best: <strong className="text-slate-200">{longestStreak}</strong>
+            </span>
+            <span>
+              Last saved:{" "}
+              <strong className="text-slate-200">{lastSavedDate ? lastSavedDate : "never"}</strong>
+            </span>
+          </div>
         </div>
-        <div className="flex gap-3 text-sm">
-          <a className="underline" href="/history">History</a>
-          <button className="underline" onClick={signOut}>Sign out</button>
+
+        <div className="flex gap-3 text-sm pt-1">
+          <a className="underline" href="/history">
+            History
+          </a>
+          <button className="underline" onClick={signOut}>
+            Sign out
+          </button>
         </div>
       </header>
 
@@ -187,7 +234,9 @@ export default function TodayPage() {
                 <button
                   key={p}
                   type="button"
-                  className={`border rounded px-3 py-2 text-sm ${selected ? "bg-slate-900 text-white" : ""}`}
+                  className={`border rounded px-3 py-2 text-sm ${
+                    selected ? "bg-slate-900 text-white" : ""
+                  }`}
                   onClick={() => togglePlatform(p)}
                 >
                   {p}
@@ -195,8 +244,11 @@ export default function TodayPage() {
               );
             })}
           </div>
+
           {plan === "free" && (
-            <p className="text-xs text-slate-500">Free: one platform per day. Pro unlocks multiple.</p>
+            <p className="text-xs text-slate-500">
+              Free: one platform per day. Pro unlocks multiple.
+            </p>
           )}
         </div>
 
