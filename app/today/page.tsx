@@ -4,14 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import MobileNav from "@/components/MobileNav";
+import PageShell from "@/components/PageShell";
+import { Card, CardContent } from "@/components/ui/Card";
 
 const PLATFORMS = ["PC", "PlayStation", "Xbox", "Nintendo", "Mobile", "Retro", "Cloud", "Other"];
 const MOODS = [
-  { value: 1, label: "😞 Rough" },
-  { value: 2, label: "😐 Meh" },
-  { value: 3, label: "🙂 Fine" },
-  { value: 4, label: "😄 Good" },
-  { value: 5, label: "🤩 Great" },
+  { value: 1, emoji: "😞", label: "Rough" },
+  { value: 2, emoji: "😐", label: "Meh" },
+  { value: 3, emoji: "🙂", label: "Fine" },
+  { value: 4, emoji: "😄", label: "Good" },
+  { value: 5, emoji: "🤩", label: "Great" },
 ];
 
 function todayISO() {
@@ -53,7 +55,6 @@ export default function TodayPage() {
         router.push("/login");
         return;
       }
-
       setUserId(data.user.id);
 
       const { data: prof } = await supabase
@@ -74,6 +75,8 @@ export default function TodayPage() {
           const d = diffDays(prof.last_saved_date, entryDate);
           if (d === 2 && p === "free") {
             setFreezeTease("Missed yesterday? Pro can protect your streak with a Streak Freeze.");
+          } else {
+            setFreezeTease(null);
           }
         }
       }
@@ -98,14 +101,12 @@ export default function TodayPage() {
   function togglePlatform(p: string) {
     if (plan === "free") {
       setPlatforms([p]);
-    } else {
-      setPlatforms((prev) =>
-        prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]
-      );
+      return;
     }
+    setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
   }
 
-  async function saveEntry(payloadOverrides?: Partial<any>) {
+  async function saveEntry(overrides?: Partial<any>) {
     if (!userId || saving) return;
     setSaving(true);
     setStatus(null);
@@ -118,7 +119,7 @@ export default function TodayPage() {
       notes: notes || null,
       minutes_played: minutes === "" ? null : minutes,
       platforms,
-      ...payloadOverrides,
+      ...overrides,
     };
 
     const { error } = await supabase
@@ -138,140 +139,303 @@ export default function TodayPage() {
       .single();
 
     const last = prof.last_saved_date as string | null;
+
     let streak = prof.streak_count ?? 0;
     let longest = prof.longest_streak ?? 0;
 
-    if (!last) streak = 1;
-    else {
+    let credits = prof.freeze_credits ?? 0;
+    let freezesUsed = prof.freezes_used ?? 0;
+    const lastFreezeDate = (prof.last_freeze_date as string | null) ?? null;
+
+    let usedFreezeNow = false;
+
+    if (!last) {
+      streak = 1;
+    } else {
       const d = diffDays(last, entryDate);
-      if (d === 1 || d === 0) streak += d === 1 ? 1 : 0;
-      else if (d === 2 && plan === "pro" && prof.freeze_credits > 0) {
+
+      if (d === 0) {
+        // already saved today
+      } else if (d === 1) {
         streak += 1;
-        await supabase.from("profiles").update({
-          freeze_credits: prof.freeze_credits - 1,
-          freezes_used: (prof.freezes_used ?? 0) + 1,
-          last_freeze_date: entryDate,
-        }).eq("id", userId);
-      } else streak = 1;
+      } else if (d === 2) {
+        if (plan === "pro" && credits > 0 && lastFreezeDate !== entryDate) {
+          streak += 1;
+          credits -= 1;
+          freezesUsed += 1;
+          usedFreezeNow = true;
+        } else {
+          streak = 1;
+        }
+      } else {
+        streak = 1;
+      }
     }
 
     longest = Math.max(longest, streak);
 
-    await supabase.from("profiles").update({
+    const updatePayload: any = {
       last_saved_date: entryDate,
       streak_count: streak,
       longest_streak: longest,
-    }).eq("id", userId);
+    };
+
+    if (usedFreezeNow) {
+      updatePayload.freeze_credits = credits;
+      updatePayload.freezes_used = freezesUsed;
+      updatePayload.last_freeze_date = entryDate;
+    }
+
+    await supabase.from("profiles").update(updatePayload).eq("id", userId);
 
     setStreakCount(streak);
     setLongestStreak(longest);
     setLastSavedDate(entryDate);
-    setStatus("Saved. Streak safe.");
+    if (usedFreezeNow) setFreezeCredits(credits);
+
+    setFreezeTease(null);
+    setStatus(usedFreezeNow ? "Saved — streak protected with a Freeze." : "Saved. Streak safe.");
     setSaving(false);
   }
 
   function didntPlayToday() {
+    // keep it predictable + filterable
     saveEntry({
       game_name: null,
       platforms: ["None"],
       minutes_played: 0,
       notes: "Didn’t play today",
+      mood,
     });
   }
 
+  async function signOut() {
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
+
   const canSave = platforms.length > 0 && !saving;
+  const moodObj = MOODS.find((m) => m.value === mood);
 
   return (
-    <main className="mx-auto max-w-2xl p-4 sm:p-6 space-y-4 pb-44">
-    <header className="flex items-start justify-between gap-4">
-  <div>
-    <h1 className="text-3xl font-bold">Today</h1>
-
-    <div className="mt-2 text-sm text-slate-600 flex gap-4 flex-wrap">
-      <span>🔥 <strong>{streakCount}</strong></span>
-      <span>🏆 <strong>{longestStreak}</strong></span>
-      {plan === "pro" && <span>🧊 <strong>{freezeCredits}</strong></span>}
-    </div>
-  </div>
-
-  {/* Desktop-only nav */}
-  <nav className="hidden sm:flex gap-4 text-sm pt-1">
-    <a className="underline" href="/history">History</a>
-    <a className="underline" href="/stats">Stats</a>
-  </nav>
-</header>
-
+    <PageShell
+      title="Today"
+      subtitle="Save your day in under a minute."
+      right={
+        <div className="flex items-center gap-4 text-sm">
+          <a className="underline underline-offset-4" href="/history">
+            History
+          </a>
+          <a className="underline underline-offset-4" href="/stats">
+            Stats
+          </a>
+          <button className="underline underline-offset-4 text-slate-300 hover:text-white" onClick={signOut}>
+            Sign out
+          </button>
+        </div>
+      }
+    >
+      {/* Streak strip */}
+      <Card>
+        <CardContent className="pt-5">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+            <span className="text-slate-300">
+              🔥 Streak: <strong className="text-white">{streakCount}</strong>
+            </span>
+            <span className="text-slate-300">
+              🏆 Best: <strong className="text-white">{longestStreak}</strong>
+            </span>
+            <span className="text-slate-300">
+              Last saved: <strong className="text-white">{lastSavedDate ?? "never"}</strong>
+            </span>
+            {plan === "pro" ? (
+              <span className="text-slate-300">
+                🧊 Freezes: <strong className="text-white">{freezeCredits}</strong>
+              </span>
+            ) : (
+              <span className="text-slate-400">
+                Pro: multi-platform + streak freeze
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {freezeTease && (
-        <div className="border border-fuchsia-500/30 bg-fuchsia-500/10 p-3 rounded">
-          {freezeTease}
+        <div className="mt-3 rounded-2xl border border-fuchsia-500/30 bg-fuchsia-500/10 p-5 text-sm text-slate-200">
+          {freezeTease}{" "}
+          <a className="underline underline-offset-4 text-fuchsia-200" href="/#pricing">
+            See Pro
+          </a>
         </div>
       )}
 
-      <section className="border rounded-lg p-4 space-y-4">
-        <input
-          className="w-full border rounded px-3 py-2"
-          placeholder="What did you play?"
-          value={gameName}
-          onChange={(e) => setGameName(e.target.value)}
-        />
+      {/* Main form */}
+      <Card className="mt-3">
+        <CardContent className="pt-5 space-y-5">
+          {/* Game */}
+          <div className="space-y-2">
+            <label className="text-sm text-slate-300">Game (optional)</label>
+            <input
+              className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-base outline-none focus:border-fuchsia-500/60"
+              value={gameName}
+              onChange={(e) => setGameName(e.target.value)}
+              placeholder="What did you play?"
+            />
+          </div>
 
-        <div className="flex flex-wrap gap-2">
-          {PLATFORMS.map((p) => (
+          {/* Platforms */}
+          <div className="space-y-2">
+            <div className="flex items-baseline justify-between">
+              <label className="text-sm text-slate-300">
+                Platform{plan === "pro" ? " (multi-select)" : ""}
+              </label>
+              {plan === "free" ? (
+                <span className="text-xs text-slate-400">Free: one per day</span>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {PLATFORMS.map((p) => {
+                const selected = platforms.includes(p);
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => togglePlatform(p)}
+                    className={[
+                      "rounded-full border px-4 py-2 text-sm min-h-11",
+                      "border-white/10 bg-white/5 hover:bg-white/10",
+                      selected ? "bg-white/15 text-white border-fuchsia-500/40" : "text-slate-200",
+                    ].join(" ")}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Mood */}
+          <div className="space-y-2">
+            <div className="flex items-baseline justify-between">
+              <label className="text-sm text-slate-300">Mood</label>
+              <span className="text-xs text-slate-400">
+                {moodObj ? `${moodObj.emoji} ${moodObj.label}` : `Mood: ${mood}`}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-5 gap-2">
+              {MOODS.map((m) => {
+                const active = mood === m.value;
+                return (
+                  <button
+                    key={m.value}
+                    type="button"
+                    onClick={() => setMood(m.value)}
+                    className={[
+                      "rounded-xl border px-2 py-3 text-center",
+                      "border-white/10 bg-black/40 hover:bg-white/10",
+                      active ? "bg-fuchsia-600/25 border-fuchsia-500/60" : "",
+                    ].join(" ")}
+                    title={m.label}
+                  >
+                    <div className="text-xl leading-none">{m.emoji}</div>
+                    <div className="mt-1 text-[11px] text-slate-300">{m.value}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Minutes + Notes */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm text-slate-300">Time played (minutes)</label>
+              <input
+                className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-base outline-none focus:border-fuchsia-500/60"
+                type="number"
+                min={0}
+                value={minutes}
+                onChange={(e) => setMinutes(e.target.value === "" ? "" : Number(e.target.value))}
+                placeholder="e.g. 90"
+              />
+              <p className="text-xs text-slate-400">Optional. Leave blank if you can’t be bothered.</p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm text-slate-300">Notes</label>
+              <textarea
+                className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-base min-h-24 outline-none focus:border-fuchsia-500/60"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Anything you want to remember…"
+              />
+            </div>
+          </div>
+
+          {/* Actions (desktop) */}
+          <div className="hidden sm:flex items-center gap-3">
             <button
-              key={p}
-              onClick={() => togglePlatform(p)}
-              className={`px-4 py-2 rounded-full border ${
-                platforms.includes(p) ? "bg-slate-900 text-white" : ""
-              }`}
+              className="rounded-xl bg-fuchsia-600 px-5 py-3 font-medium text-white hover:bg-fuchsia-500 disabled:opacity-50"
+              onClick={() => saveEntry()}
+              disabled={!canSave}
+              title={platforms.length === 0 ? "Pick a platform to save" : ""}
             >
-              {p}
+              {saving ? "Saving…" : "Save Game"}
             </button>
-          ))}
-        </div>
 
-        <div className="grid grid-cols-5 gap-2">
-          {MOODS.map((m) => (
             <button
-              key={m.value}
-              onClick={() => setMood(m.value)}
-              className={`border rounded py-2 ${
-                mood === m.value ? "bg-fuchsia-600 text-white" : ""
-              }`}
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 hover:bg-white/10"
+              onClick={didntPlayToday}
+              disabled={saving}
+              title="Logs a rest day and keeps the streak alive."
             >
-              {m.label}
+              Didn’t play today
             </button>
-          ))}
+
+            {status ? <span className="text-sm text-slate-300">{status}</span> : null}
+          </div>
+
+          {/* Status (mobile in-card) */}
+          {status ? <p className="sm:hidden text-sm text-slate-300">{status}</p> : null}
+        </CardContent>
+      </Card>
+
+      {/* Mobile bottom nav + save bar stack */}
+      <div className="sm:hidden fixed bottom-0 left-0 right-0 z-50">
+        <div className="border-t border-white/10 bg-black/90 backdrop-blur">
+          <MobileNav />
         </div>
 
-        <textarea
-          className="w-full border rounded px-3 py-2"
-          placeholder="Notes"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
+        <div className="border-t border-white/10 bg-black/90 backdrop-blur">
+          <div className="mx-auto max-w-2xl px-4 py-3 flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-slate-400 truncate">
+                {platforms.length ? `Ready to save (${platforms.join(", ")})` : "Pick a platform to save"}
+              </p>
+              {status ? <p className="text-xs text-slate-200 truncate">{status}</p> : null}
+            </div>
 
-        <div className="flex gap-3">
-          <button
-            onClick={() => saveEntry()}
-            disabled={!canSave}
-            className="flex-1 bg-fuchsia-600 text-white rounded py-2"
-          >
-            Save Game
-          </button>
+            <button
+              className="rounded-xl bg-fuchsia-600 px-4 py-3 font-medium text-white disabled:opacity-50"
+              onClick={() => saveEntry()}
+              disabled={!canSave}
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
 
-          <button
-            onClick={didntPlayToday}
-            className="border rounded py-2 px-3 text-sm"
-          >
-            Didn’t play today
-          </button>
+            <button
+              className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-200"
+              onClick={didntPlayToday}
+              disabled={saving}
+              title="Rest day"
+            >
+              💤
+            </button>
+          </div>
         </div>
-
-        {status && <p className="text-sm text-slate-600">{status}</p>}
-      </section>
-
-      <MobileNav />
-    </main>
+      </div>
+    </PageShell>
   );
 }
