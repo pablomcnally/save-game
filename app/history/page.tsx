@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import MobileNav from "@/components/MobileNav";
 
 type Entry = {
   id: string;
@@ -37,7 +38,12 @@ export default function HistoryPage() {
         return;
       }
 
-      const { data: prof } = await supabase.from("profiles").select("plan").eq("id", data.user.id).single();
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("plan")
+        .eq("id", data.user.id)
+        .single();
+
       const p = (prof?.plan ?? "free") === "pro" ? "pro" : "free";
       setPlan(p);
 
@@ -46,7 +52,6 @@ export default function HistoryPage() {
       else fromDate.setFullYear(fromDate.getFullYear() - 50);
       const iso = fromDate.toISOString().slice(0, 10);
 
-      // Pull the base set (date-limited), then filter client-side for MVP simplicity
       const { data: rows, error } = await supabase
         .from("entries")
         .select("id, entry_date, game_name, platforms, mood, minutes_played, notes")
@@ -69,8 +74,7 @@ export default function HistoryPage() {
       const platformOk =
         platformFilter === "All" ? true : (e.platforms ?? []).includes(platformFilter);
 
-      const moodOk =
-        moodFilter === "All" ? true : e.mood === Number(moodFilter);
+      const moodOk = moodFilter === "All" ? true : e.mood === Number(moodFilter);
 
       return platformOk && moodOk;
     });
@@ -82,18 +86,22 @@ export default function HistoryPage() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl p-6 space-y-4">
-      <header className="flex items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold">History</h1>
-          <p className="text-slate-600">
-            {plan === "free" ? "Showing your last 30 days (Free)." : "Showing all entries (Pro)."}
-          </p>
-        </div>
-        <a className="underline text-sm" href="/today">
-          Today
-        </a>
-      </header>
+    <main className="mx-auto max-w-2xl p-4 sm:p-6 space-y-4 pb-24 sm:pb-6">
+      <header className="flex items-start justify-between gap-4">
+  <div>
+    <h1 className="text-3xl font-bold">History</h1>
+    <p className="text-slate-600">
+      {plan === "free" ? "Showing your last 30 days (Free)." : "Showing all entries (Pro)."}
+    </p>
+  </div>
+
+  {/* Desktop-only nav */}
+  <nav className="hidden sm:flex gap-4 text-sm pt-1">
+    <a className="underline" href="/today">Today</a>
+    <a className="underline" href="/stats">Stats</a>
+  </nav>
+</header>
+
 
       {/* Filters */}
       <section className="border rounded-lg p-4 space-y-3">
@@ -102,7 +110,7 @@ export default function HistoryPage() {
             <div className="flex-1">
               <label className="block text-sm text-slate-600 mb-1">Platform</label>
               <select
-                className="w-full border rounded px-3 py-2"
+                className="w-full border rounded px-3 py-2 text-base"
                 value={platformFilter}
                 onChange={(e) => setPlatformFilter(e.target.value)}
               >
@@ -118,7 +126,7 @@ export default function HistoryPage() {
             <div className="flex-1">
               <label className="block text-sm text-slate-600 mb-1">Mood</label>
               <select
-                className="w-full border rounded px-3 py-2"
+                className="w-full border rounded px-3 py-2 text-base"
                 value={moodFilter}
                 onChange={(e) => setMoodFilter(e.target.value)}
               >
@@ -140,9 +148,6 @@ export default function HistoryPage() {
         <div className="text-sm text-slate-600 flex flex-wrap gap-3">
           <span>
             Results: <strong>{filteredEntries.length}</strong>
-          </span>
-          <span className="text-slate-400">
-            (Filters apply locally — we’ll move this server-side later if needed.)
           </span>
         </div>
       </section>
@@ -178,6 +183,8 @@ export default function HistoryPage() {
           </a>
         </div>
       )}
+
+      <MobileNav />
     </main>
   );
 }
