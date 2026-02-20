@@ -218,22 +218,9 @@ export default function TodayPage() {
   const moodObj = MOODS.find((m) => m.value === mood);
 
   return (
-    <PageShell
-      title="Today"
-      subtitle="Save your day in under a minute."
-      right={
-        <div className="flex items-center gap-4 text-sm">
-          <a className="underline underline-offset-4" href="/history">
-            History
-          </a>
-          <a className="underline underline-offset-4" href="/stats">
-            Stats
-          </a>
-          <button className="underline underline-offset-4 text-slate-300 hover:text-white" onClick={signOut}>
-            Sign out
-          </button>
-        </div>
-      }
+ <PageShell
+      title="Stats"
+      subtitle="All entries."
     >
       {/* Streak strip */}
       <Card>
