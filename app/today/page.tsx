@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import MobileNav from "@/components/MobileNav";
 import PageShell from "@/components/PageShell";
@@ -26,9 +26,22 @@ function diffDays(aISO: string, bISO: string) {
   return Math.round((+b - +a) / (1000 * 60 * 60 * 24));
 }
 
+function isValidISODate(s: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+
 export default function TodayPage() {
   const router = useRouter();
-  const entryDate = useMemo(() => todayISO(), []);
+  const search = useSearchParams();
+
+  const actualToday = useMemo(() => todayISO(), []);
+  const requestedDate = search.get("date");
+  const entryDate = useMemo(() => {
+    if (requestedDate && isValidISODate(requestedDate)) return requestedDate;
+    return actualToday;
+  }, [requestedDate, actualToday]);
+
+  const isEditingToday = entryDate === actualToday;
 
   const [userId, setUserId] = useState<string | null>(null);
   const [plan, setPlan] = useState<"free" | "pro">("free");
@@ -50,6 +63,9 @@ export default function TodayPage() {
 
   useEffect(() => {
     (async () => {
+      setStatus(null);
+      setSaving(false);
+
       const { data } = await supabase.auth.getUser();
       if (!data.user) {
         router.push("/login");
@@ -71,16 +87,20 @@ export default function TodayPage() {
         setLastSavedDate(prof.last_saved_date ?? null);
         setFreezeCredits(prof.freeze_credits ?? 0);
 
-        if (prof.last_saved_date) {
-          const d = diffDays(prof.last_saved_date, entryDate);
+        // Only show freeze tease when you're on the real Today view
+        if (isEditingToday && prof.last_saved_date) {
+          const d = diffDays(prof.last_saved_date, actualToday);
           if (d === 2 && p === "free") {
             setFreezeTease("Missed yesterday? Pro can protect your streak with a Streak Freeze.");
           } else {
             setFreezeTease(null);
           }
+        } else {
+          setFreezeTease(null);
         }
       }
 
+      // Load entry for the selected date
       const { data: e } = await supabase
         .from("entries")
         .select("*")
@@ -94,9 +114,16 @@ export default function TodayPage() {
         setMinutes(e.minutes_played ?? "");
         setMood(e.mood ?? 3);
         setNotes(e.notes ?? "");
+      } else {
+        // reset form for a new day
+        setGameName("");
+        setPlatforms([]);
+        setMinutes("");
+        setMood(3);
+        setNotes("");
       }
     })();
-  }, [router, entryDate]);
+  }, [router, entryDate, actualToday, isEditingToday]);
 
   function togglePlatform(p: string) {
     if (plan === "free") {
@@ -106,7 +133,7 @@ export default function TodayPage() {
     setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
   }
 
-  async function saveEntry(overrides?: Partial<any>) {
+  async function upsertEntry(overrides?: Partial<any>) {
     if (!userId || saving) return;
     setSaving(true);
     setStatus(null);
@@ -132,6 +159,14 @@ export default function TodayPage() {
       return;
     }
 
+    // If you're editing a past day, do NOT touch streak/profile
+    if (!isEditingToday) {
+      setSaving(false);
+      setStatus("Saved. (Past entry updated — streak unchanged.)");
+      return;
+    }
+
+    // Otherwise, normal "today" behavior: update streak/profile
     const { data: prof } = await supabase
       .from("profiles")
       .select("*")
@@ -152,14 +187,14 @@ export default function TodayPage() {
     if (!last) {
       streak = 1;
     } else {
-      const d = diffDays(last, entryDate);
+      const d = diffDays(last, actualToday);
 
       if (d === 0) {
         // already saved today
       } else if (d === 1) {
         streak += 1;
       } else if (d === 2) {
-        if (plan === "pro" && credits > 0 && lastFreezeDate !== entryDate) {
+        if (plan === "pro" && credits > 0 && lastFreezeDate !== actualToday) {
           streak += 1;
           credits -= 1;
           freezesUsed += 1;
@@ -175,7 +210,7 @@ export default function TodayPage() {
     longest = Math.max(longest, streak);
 
     const updatePayload: any = {
-      last_saved_date: entryDate,
+      last_saved_date: actualToday,
       streak_count: streak,
       longest_streak: longest,
     };
@@ -183,14 +218,14 @@ export default function TodayPage() {
     if (usedFreezeNow) {
       updatePayload.freeze_credits = credits;
       updatePayload.freezes_used = freezesUsed;
-      updatePayload.last_freeze_date = entryDate;
+      updatePayload.last_freeze_date = actualToday;
     }
 
     await supabase.from("profiles").update(updatePayload).eq("id", userId);
 
     setStreakCount(streak);
     setLongestStreak(longest);
-    setLastSavedDate(entryDate);
+    setLastSavedDate(actualToday);
     if (usedFreezeNow) setFreezeCredits(credits);
 
     setFreezeTease(null);
@@ -198,9 +233,8 @@ export default function TodayPage() {
     setSaving(false);
   }
 
-  function didntPlayToday() {
-    // keep it predictable + filterable
-    saveEntry({
+  function markNoPlay() {
+    upsertEntry({
       game_name: null,
       platforms: ["None"],
       minutes_played: 0,
@@ -211,18 +245,27 @@ export default function TodayPage() {
 
   async function signOut() {
     await supabase.auth.signOut();
-    router.push("/login");
+    router.push("/");
   }
 
   const canSave = platforms.length > 0 && !saving;
   const moodObj = MOODS.find((m) => m.value === mood);
 
   return (
- <PageShell
-      title="Stats"
-      subtitle="All entries."
+    <PageShell
+      title={isEditingToday ? "Today" : "Edit day"}
+      subtitle={isEditingToday ? "Save your day in under a minute." : `Editing: ${entryDate}`}
     >
-      {/* Streak strip */}
+      {/* If editing past day, quick link back */}
+      {!isEditingToday ? (
+        <div className="mb-3 text-sm">
+          <a className="underline underline-offset-4 text-slate-300 hover:text-white" href="/history">
+            ← Back to History
+          </a>
+        </div>
+      ) : null}
+
+      {/* Streak strip (still useful, but only “truth” for today) */}
       <Card>
         <CardContent className="pt-5">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
@@ -240,10 +283,15 @@ export default function TodayPage() {
                 🧊 Freezes: <strong className="text-white">{freezeCredits}</strong>
               </span>
             ) : (
-              <span className="text-slate-400">
-                Pro: multi-platform + streak freeze
-              </span>
+              <span className="text-slate-400">Pro: multi-platform + streak freeze</span>
             )}
+
+            <button
+              className="ml-auto underline underline-offset-4 text-slate-300 hover:text-white"
+              onClick={signOut}
+            >
+              Sign out
+            </button>
           </div>
         </CardContent>
       </Card>
@@ -277,9 +325,7 @@ export default function TodayPage() {
               <label className="text-sm text-slate-300">
                 Platform{plan === "pro" ? " (multi-select)" : ""}
               </label>
-              {plan === "free" ? (
-                <span className="text-xs text-slate-400">Free: one per day</span>
-              ) : null}
+              {plan === "free" ? <span className="text-xs text-slate-400">Free: one per day</span> : null}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -365,7 +411,7 @@ export default function TodayPage() {
           <div className="hidden sm:flex items-center gap-3">
             <button
               className="rounded-xl bg-fuchsia-600 px-5 py-3 font-medium text-white hover:bg-fuchsia-500 disabled:opacity-50"
-              onClick={() => saveEntry()}
+              onClick={() => upsertEntry()}
               disabled={!canSave}
               title={platforms.length === 0 ? "Pick a platform to save" : ""}
             >
@@ -374,22 +420,21 @@ export default function TodayPage() {
 
             <button
               className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 hover:bg-white/10"
-              onClick={didntPlayToday}
+              onClick={markNoPlay}
               disabled={saving}
-              title="Logs a rest day and keeps the streak alive."
+              title="Logs a rest day."
             >
-              Didn’t play today
+              {isEditingToday ? "Didn’t play today" : "Didn’t play this day"}
             </button>
 
             {status ? <span className="text-sm text-slate-300">{status}</span> : null}
           </div>
 
-          {/* Status (mobile in-card) */}
           {status ? <p className="sm:hidden text-sm text-slate-300">{status}</p> : null}
         </CardContent>
       </Card>
 
-      {/* Mobile bottom nav + save bar stack */}
+      {/* Mobile nav + save bar */}
       <div className="sm:hidden fixed bottom-0 left-0 right-0 z-50">
         <div className="border-t border-white/10 bg-black/90 backdrop-blur">
           <MobileNav />
@@ -406,7 +451,7 @@ export default function TodayPage() {
 
             <button
               className="rounded-xl bg-fuchsia-600 px-4 py-3 font-medium text-white disabled:opacity-50"
-              onClick={() => saveEntry()}
+              onClick={() => upsertEntry()}
               disabled={!canSave}
             >
               {saving ? "Saving…" : "Save"}
@@ -414,7 +459,7 @@ export default function TodayPage() {
 
             <button
               className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-200"
-              onClick={didntPlayToday}
+              onClick={markNoPlay}
               disabled={saving}
               title="Rest day"
             >
